@@ -1,0 +1,198 @@
+---
+title: "Analysis of driving factors of the 2024 Global Happiness Index"
+author: "Jintao"
+date: "2024-12-10"
+categories: [news, code, analysis]
+image: "image/happiness.jpg"
+---
+
+**Research objectives :**
+
+-   Visualize the regional distribution of happiness index of each country.
+
+-   Explore the impact of GDP, social support, and healthy life expectancy on happiness index.
+
+-   Use multiple linear regression model to evaluate the main influencing factors.
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(conflicted)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+```
+
+**Data source:**
+
+The dataset comes from: [Kaggle - World Happiness Report 2024](https://www.kaggle.com/datasets/jainaru/world-happiness-report-2024-yearly-updated/data)
+
+```{r}
+
+# Load data
+happiness_data <- read.csv("data/World-happiness-report-2024.csv")
+
+# Show data structure
+str(happiness_data)
+
+```
+
+```{r}
+# Data cleaning: Select relevant variables and check for missing values
+happiness_clean <- happiness_data %>%
+  select(Country.name, Regional.indicator, Ladder.score, Log.GDP.per.capita, Social.support, Healthy.life.expectancy,Freedom.to.make.life.choices, Generosity, Perceptions.of.corruption,Dystopia.residual) %>%
+  drop_na() %>%
+  rename(
+    Country = Country.name,                
+    Region = Regional.indicator,                  
+    Happiness_Score = Ladder.score, 
+    GDP_Per_Capita = Log.GDP.per.capita,  
+    Social_Support = Social.support,   
+    Life_Expectancy = Healthy.life.expectancy,
+    Freedom = Freedom.to.make.life.choices,
+    Generosity = Generosity,
+    Perceptions = Perceptions.of.corruption,
+    Dystopia = Dystopia.residual
+  )
+```
+
+**Visualizing the global distribution of happiness index**
+
+```{r}
+# Mapping the regional distribution of happiness index
+happiness_clean %>%
+  group_by(Region) %>%
+  summarise(Average_Score = mean(Happiness_Score)) %>%
+  ggplot(aes(x = reorder(Region, -Average_Score), y = Average_Score, fill = Region)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Average happiness index of different regions in the world",
+       x = "area",
+       y = "Average happiness index") +
+  theme_minimal()
+```
+
+In terms of regional distribution, the average happiness index in Northern Europe is the highest, while the happiness index in Sub-Saharan Africa is the lowest.
+
+--
+
+**Correlation between the analysis index and happiness scores**
+
+```{r}
+# Remove the column named "Country" and "Region"
+happiness_clean_new <- happiness_clean %>%
+  select(-Country, -Region)
+
+# Calculate the correlation matrix
+correlation_matrix <- cor(happiness_clean_new, use = "complete.obs")
+
+# Calculate the correlation matrix
+correlation_with_happiness <- correlation_matrix["Happiness_Score", ]
+correlation_with_happiness
+
+# Convert to data frame
+correlations <- as.data.frame(correlation_with_happiness) %>%
+  rownames_to_column("Parameter") %>%
+  rename(Correlation = "correlation_with_happiness") %>%
+  filter(Parameter != "Ladder.score")  # 排除自身
+
+# Plot a correlation bar chart
+ggplot(correlations, aes(x = reorder(Parameter, Correlation), y = Correlation, fill = Correlation)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Correlation analysis of parameters with happiness index",
+       x = "parameter",
+       y = "Correlation") +
+  theme_minimal()
+```
+
+**Result analysis**
+
+Parameters with strong correlation:
+
+-   GDP.per.capita
+
+-   Social.support
+
+-   Healthy.life.expectancy
+
+--
+
+Focus on analyzing the impact of these three indicators on the happiness index
+
+**Multiple regression analysis**
+
+```{r}
+# Building a multiple linear regression model
+model <- lm(Happiness_Score ~ GDP_Per_Capita + Social_Support + Life_Expectancy, 
+            data = happiness_clean)
+
+# Model Summary
+summary(model)
+```
+
+**Importance Analysis and Visualization**
+
+```{r}
+# Extract regression coefficients
+importance <- summary(model)$coefficients %>%
+  as.data.frame() %>%
+  rownames_to_column("Feature") %>%
+  filter(Feature != "(Intercept)")
+
+# Plot feature importance
+ggplot(importance, aes(x = reorder(Feature, Estimate), y = Estimate)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Key factors affecting happiness index",
+       x = "Influencing factors",
+       y = "Regression coefficient") +
+  theme_minimal()
+```
+
+```{r}
+# Plot GDP against happiness index
+ggplot(happiness_clean, aes(x = GDP_Per_Capita , y = Happiness_Score )) +
+  geom_point(aes(color = Region), alpha = 0.7) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "The relationship between GDP and happiness index",
+       x = "GDP",
+       y = "Happiness Index") +
+  theme_minimal()
+
+# Plot the relationship between Social_Support and happiness index
+ggplot(happiness_clean, aes(x = Social_Support , y = Happiness_Score )) +
+  geom_point(color = "blue", alpha = 0.6) + 
+  geom_smooth(method = "lm", color = "red", linetype = "dashed") + 
+  labs(
+    title = "The relationship between social support and happiness index",
+    x = "Social Support",
+    y = "Happiness Score"
+  ) +
+  theme_minimal()
+
+# Plot Life_Expectancy vs. Happiness Index
+ggplot(happiness_clean, aes(x = Life_Expectancy, y = Happiness_Score)) +
+  geom_point(color = "green", alpha = 0.6) + 
+  geom_smooth(method = "lm", color = "red", linetype = "dashed") + 
+  labs(
+    title = "The relationship between life expectancy and happiness index",
+    x = "Life Expectancy (Healthy)",
+    y = "Happiness Score"
+  ) +
+  theme_minimal()
+```
+
+**Conclusion:**
+
+Countries with higher GDP generally have higher happiness indexes, but in some cases there may be diminishing marginal effects (i.e., the improvement in happiness index becomes smaller as GDP increases to a certain level).Developed regions (such as Northern Europe) may exhibit high GDP and high happiness index. Developing regions may show lower GDP and happiness indices. While GDP is an important factor in happiness, non-economic indicators (e.g. social support, healthy life expectancy) may contribute even more to the happiness index.
+
+High social support (such as having more support from family and friends) significantly increases happiness index. The role of social support may be related to cultural and economic conditions, such as: Nordic countries generally have high social support and high happiness scores. Economically underdeveloped areas may have lower social support and lower happiness indexes.
+
+Healthy life expectancy (Life_Expectancy) is an important determinant of happiness index. Good health and longevity are important sources of happiness. In some developed countries, healthy life expectancy is higher and the happiness index is also high (such as Europe and North America). For countries with low healthy life expectancy (such as some developing countries), happiness may be affected by inadequate medical care and quality of life.
+
+Governments and institutions can focus on improving public health and social support systems to increase overall well-being.
